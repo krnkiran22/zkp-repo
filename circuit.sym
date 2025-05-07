@@ -1,0 +1,7 @@
+1,4,0,main.birthYear
+2,2,0,main.currentYear
+3,3,0,main.thresholdYear
+4,1,0,main.valid
+5,6,0,main.diff
+6,5,0,main.isPositive
+7,7,0,main.inverse

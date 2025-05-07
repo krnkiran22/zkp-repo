@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZKP Age Verifier</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/snarkjs@0.7.0/build/snarkjs.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+
+    const App = () => {
+      const [birthYear, setBirthYear] = useState('');
+      const [proof, setProof] = useState(null);
+      const [publicSignals, setPublicSignals] = useState(null);
+      const [status, setStatus] = useState('');
+      const currentYear = 2025;
+      const thresholdYear = currentYear - 18;
+
+      const generateProof = async () => {
+        try {
+          setStatus('Generating proof...');
+          if (!birthYear || isNaN(parseInt(birthYear)) || parseInt(birthYear) > currentYear) {
+            throw new Error('Please enter a valid birth year');
+          }
+          const input = {
+            birthYear: parseInt(birthYear),
+            currentYear: currentYear,
+            thresholdYear: thresholdYear
+          };
+          const { proof, publicSignals } = await snarkjs.groth16.fullProve(
+            input,
+            '/circuit.wasm', // Root directory
+            '/circuit_final.zkey' // Root directory
+          );
+          console.log('Proof:', JSON.stringify(proof, null, 2));
+          console.log('Public Signals:', publicSignals, '[valid, currentYear, thresholdYear]');
+          setProof(proof);
+          setPublicSignals(publicSignals);
+          setStatus('Proof generated!');
+        } catch (error) {
+          console.error('Proof generation error:', error);
+          setStatus('Error generating proof: ' + error.message);
+        }
+      };
+
+      const verifyProof = async () => {
+        try {
+          setStatus('Verifying proof...');
+          if (!window.ethereum) {
+            throw new Error('MetaMask is not installed');
+          }
+          const provider = new ethers.providers.Web3Provider(window.ethereum);
+          await provider.send('eth_requestAccounts', []);
+          const signer = provider.getSigner();
+          const contractAddress = '0xFEa28502c8522AE0b05b2B789EB33c2B552dA342';
+          const contractABI = [
+	{
+		"inputs": [
+			{
+				"internalType": "uint256[2]",
+				"name": "_pA",
+				"type": "uint256[2]"
+			},
+			{
+				"internalType": "uint256[2][2]",
+				"name": "_pB",
+				"type": "uint256[2][2]"
+			},
+			{
+				"internalType": "uint256[2]",
+				"name": "_pC",
+				"type": "uint256[2]"
+			},
+			{
+				"internalType": "uint256[3]",
+				"name": "_pubSignals",
+				"type": "uint256[3]"
+			}
+		],
+		"name": "verifyProof",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	}
+];
+          const contract = new ethers.Contract(contractAddress, contractABI, signer);
+          const a = [proof.pi_a[0], proof.pi_a[1]]; // Exclude extra coordinate
+          const b = [[proof.pi_b[0][1], proof.pi_b[0][0]], [proof.pi_b[1][1], proof.pi_b[1][0]]];
+          const c = [proof.pi_c[0], proof.pi_c[1]]; // Exclude extra coordinate
+          const input = [publicSignals[0], publicSignals[1], publicSignals[2]]; // [valid, currentYear, thresholdYear]
+          console.log('Calling verifyProof with:', { a, b, c, input });
+          const result = await contract.verifyProof(a, b, c, input);
+          setStatus(result ? 'Proof verified!' : 'Proof invalid');
+        } catch (error) {
+          console.error('Verification error:', error);
+          setStatus('Error verifying proof: ' + error.message);
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
+          <h1 className="text-3xl font-bold mb-4">ZKP Age Verifier</h1>
+          <div className="bg-white p-6 rounded shadow-md w-96">
+            <input
+              type="number"
+              placeholder="Enter birth year"
+              value={birthYear}
+              onChange={(e) => setBirthYear(e.target.value)}
+              className="w-full p-2 mb-4 border rounded"
+            />
+            <button
+              onClick={generateProof}
+              className="w-full bg-blue-500 text-white p-2 rounded mb-2 hover:bg-blue-600"
+            >
+              Generate Proof
+            </button>
+            <button
+              onClick={verifyProof}
+              disabled={!proof}
+              className="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 disabled:bg-gray-400"
+            >
+              Verify Proof
+            </button>
+            <p className="mt-4 text-sm text-gray-600">{status}</p>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<App />, document.getElementById('root'));
+  </script>
+</body>
+</html>
